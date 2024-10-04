@@ -1642,12 +1642,13 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
         torch.set_default_dtype(dtype)
         return dtype_orig
 
-    @property
-    def base_model(self) -> nn.Module:
-        """
-        `torch.nn.Module`: The main body of the model.
-        """
-        return getattr(self, self.base_model_prefix, self)
+    # @property
+    # def base_model(self) :
+    #     """
+    #     `torch.nn.Module`: The main body of the model.
+    #     """
+        
+    #     return getattr(self, self.base_model_prefix, self)
 
     @classmethod
     def can_generate(cls) -> bool:
@@ -4820,18 +4821,6 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
                 )
 
             logger.warning_once(warn_string)
-
-    @property
-    def _is_quantized_training_enabled(self):
-        warnings.warn(
-            "`_is_quantized_training_enabled` is going to be deprecated in transformers 4.39.0. Please use `model.hf_quantizer.is_trainable` instead",
-            FutureWarning,
-        )
-
-        if not hasattr(self, "hf_quantizer"):
-            return False
-
-        return self.hf_quantizer.is_trainable
 
 
 PreTrainedModel.push_to_hub = copy_func(PreTrainedModel.push_to_hub)

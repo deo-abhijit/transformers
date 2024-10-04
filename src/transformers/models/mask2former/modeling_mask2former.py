@@ -1372,7 +1372,7 @@ class Mask2FormerPixelDecoder(nn.Module):
             attentions=encoder_outputs.attentions,
         )
 
-
+from ..swin.modeling_swin import SwinBackboneOurOwn
 class Mask2FormerPixelLevelModule(nn.Module):
     def __init__(self, config: Mask2FormerConfig):
         """
@@ -1386,7 +1386,15 @@ class Mask2FormerPixelLevelModule(nn.Module):
         """
         super().__init__()
 
-        self.encoder = load_backbone(config)
+        import pickle 
+        
+        #self.encoder = load_backbone(config)# SwinBackboneOurOwn(config=config)  
+        swin_config=  pickle.load(open('finalfinalfinalconfig.pkl','rb'))
+        self.encoder = SwinBackboneOurOwn(config=swin_config)
+            
+        print(self.encoder) 
+        
+        
         self.decoder = Mask2FormerPixelDecoder(config, feature_channels=self.encoder.channels)
 
     def forward(self, pixel_values: Tensor, output_hidden_states: bool = False) -> Mask2FormerPixelLevelModuleOutput:
@@ -2212,6 +2220,8 @@ class Mask2FormerModel(Mask2FormerPreTrainedModel):
     def __init__(self, config: Mask2FormerConfig):
         super().__init__(config)
         self.pixel_level_module = Mask2FormerPixelLevelModule(config)
+        import torch_tensorrt 
+        
         self.transformer_module = Mask2FormerTransformerModule(in_features=config.feature_size, config=config)
 
         self.post_init()
@@ -2299,10 +2309,7 @@ class Mask2FormerModel(Mask2FormerPreTrainedModel):
             attentions=transformer_module_output.attentions,
             masks_queries_logits=transformer_module_output.masks_queries_logits,
         )
-
-        if not return_dict:
-            output = tuple(v for v in output.values() if v is not None)
-
+        
         return output
 
 
@@ -2552,9 +2559,14 @@ class Mask2FormerForUniversalSegmentation(Mask2FormerPreTrainedModel):
             transformer_decoder_hidden_states=transformer_decoder_hidden_states,
             attentions=outputs.attentions,
         )
-
+        
+        return_value_=[] 
         if not return_dict:
-            output = tuple(v for v in output.values() if v is not None)
-            if loss is not None:
-                output = (loss) + output
-        return output
+            for v in output.values():
+                if v is not None:
+                    return_value_.append(v)
+                    
+                
+            
+
+        return return_value_

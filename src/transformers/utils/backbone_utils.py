@@ -165,6 +165,7 @@ class BackboneMixin:
         self._out_features, self._out_indices = out_features, out_indices
 
     def _init_transformers_backbone(self, config) -> None:
+        print("happening")
         stage_names = getattr(config, "stage_names")
         out_features = getattr(config, "out_features", None)
         out_indices = getattr(config, "out_indices", None)

@@ -14,7 +14,7 @@
 """
 Generic utilities
 """
-
+import torch
 import inspect
 import tempfile
 import warnings
@@ -699,10 +699,7 @@ def tensor_size(array):
         return np.size(array)
     elif is_torch_tensor(array):
         return array.numel()
-    elif is_tf_tensor(array):
-        import tensorflow as tf
-
-        return tf.size(array)
+    
     elif is_jax_tensor(array):
         return array.size
     else:
@@ -753,16 +750,16 @@ def infer_framework(model_class):
         raise TypeError(f"Could not infer framework from class {model_class}.")
 
 
-def torch_int(x):
+def torch_int(x:int):
     """
     Casts an input to a torch int64 tensor if we are in a tracing context, otherwise to a Python int.
     """
-    if not is_torch_available():
-        return int(x)
+    # if not is_torch_available():
+        # return int(x)
 
-    import torch
+    return int(x)
 
-    return x.to(torch.int64) if torch.jit.is_tracing() and isinstance(x, torch.Tensor) else int(x)
+    # return x.to(torch.int64) if torch.jit.is_tracing() and isinstance(x, torch.Tensor) else int(x)
 
 
 def torch_float(x):
