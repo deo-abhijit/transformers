@@ -759,7 +759,7 @@ class SwinLayer(nn.Module):
 
 
 class SwinStage(nn.Module):
-    def __init__(self, dim, input_resolution, depth, num_heads, window_size, downsample,chunk_size_feed_forward, qkv_bias,drop_path_rate,hidden_act,mlp_ratio, hidden_dropout_prob):
+    def __init__(self, dim, input_resolution, depth, num_heads, window_size, downsample,chunk_size_feed_forward, qkv_bias,drop_path_rate,hidden_act,mlp_ratio, hidden_dropout_prob,layer_norm_eps):
         super().__init__()
         self.dim = dim
         self.blocks = nn.ModuleList(
@@ -775,7 +775,7 @@ class SwinStage(nn.Module):
                     hidden_dropout_prob=hidden_dropout_prob,
                     chunk_size_feed_forward=chunk_size_feed_forward,
                     window_size=window_size,
-                    layer_norm_eps=window_size,
+                    layer_norm_eps=layer_norm_eps,
                     shift_size=0 if (i % 2 == 0) else window_size // 2,
                     
                 )
@@ -825,7 +825,7 @@ class SwinStage(nn.Module):
 
 
 class SwinEncoder(nn.Module):
-    def __init__(self,embed_dim, num_heads,grid_size,chunk_size_feed_forward,qkv_bias,drop_path_rate,hidden_act,mlp_ratio,hidden_dropout_prob,depths,):
+    def __init__(self,embed_dim, num_heads,grid_size,chunk_size_feed_forward,qkv_bias,drop_path_rate,hidden_act,mlp_ratio,hidden_dropout_prob,depths,layer_norm_eps):
         super().__init__()
         self.num_layers = len(depths)
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
@@ -844,7 +844,8 @@ class SwinEncoder(nn.Module):
                     drop_path_rate=drop_path_rate,
                     hidden_act=hidden_act,
                     mlp_ratio=mlp_ratio,
-                    hidden_dropout_prob=hidden_dropout_prob
+                    hidden_dropout_prob=hidden_dropout_prob,
+                    layer_norm_eps=layer_norm_eps,
                 )
                 for i_layer in range(self.num_layers)
             ]
@@ -863,7 +864,6 @@ class SwinEncoder(nn.Module):
         always_partition: bool = False,
         return_dict: bool = True,
     ) :
-        print(output_attentions)
         all_hidden_states = []
         all_reshaped_hidden_states = []
         all_self_attentions = () if output_attentions else None
@@ -1421,7 +1421,7 @@ class SwinBackbone(SwinPreTrainedModel, BackboneMixin):
 
 from transformers.utils.backbone_utils import get_aligned_output_features_output_indices
 class SwinBackboneOurOwn(nn.Module):
-    def __init__(self, embed_dim,depths,image_size,num_heads,patch_size,use_absolute_embeddings,drop_path_rate,mlp_ratio,hidden_act,chunk_size_feed_forward,qkv_bias,hidden_dropout_prob,use_mask_token,num_channels):
+    def __init__(self, embed_dim,depths,image_size,num_heads,patch_size,use_absolute_embeddings,drop_path_rate,mlp_ratio,hidden_act,chunk_size_feed_forward,qkv_bias,hidden_dropout_prob,use_mask_token,num_channels,layer_norm_eps,):
         super().__init__()
       
         
@@ -1442,7 +1442,7 @@ class SwinBackboneOurOwn(nn.Module):
                                          use_absolute_embeddings=use_absolute_embeddings,hidden_dropout_prob=hidden_dropout_prob,
                                          use_mask_token=use_mask_token)
         self.encoder = SwinEncoder(embed_dim=embed_dim,grid_size=self.embeddings.patch_grid,num_heads=num_heads, 
-                                   chunk_size_feed_forward=chunk_size_feed_forward,qkv_bias=qkv_bias,
+                                   chunk_size_feed_forward=chunk_size_feed_forward,qkv_bias=qkv_bias,layer_norm_eps=layer_norm_eps,
                                    drop_path_rate=drop_path_rate,hidden_act=hidden_act,mlp_ratio=mlp_ratio,hidden_dropout_prob=hidden_dropout_prob,depths=depths)
 
         # Add layer norms to hidden states of out_features

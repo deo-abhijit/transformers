@@ -1396,8 +1396,8 @@ class Mask2FormerPixelLevelModule(nn.Module):
 
         self.encoder = SwinBackboneOurOwn(embed_dim=192,depths=[2,2,18,2],image_size=384,patch_size=4,use_absolute_embeddings=False,
                                           drop_path_rate=0.3,mlp_ratio=4,hidden_act='gelu',chunk_size_feed_forward=0,
-                                          qkv_bias=True,hidden_dropout_prob=0.0,use_mask_token=False, num_channels=3, num_heads=[6,12,24,48]
-                                          
+                                          qkv_bias=True,hidden_dropout_prob=0.0,use_mask_token=False, num_channels=3, num_heads=[6,12,24,48],
+                                          layer_norm_eps=1e-5
                                           )
             
          
