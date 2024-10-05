@@ -641,8 +641,8 @@ class SwinLayer(nn.Module):
         self.window_size = window_size
         self.input_resolution = input_resolution
         self.layernorm_before = nn.LayerNorm(dim, eps=layer_norm_eps)
-        self.attention = SwinAttention( dim=dim,num_heads= num_heads,qkv_bias= qkv_bias,window_size=self.window_size)
-        self.drop_path = SwinDropPath(drop_path_rate=drop_path_rate) if drop_path_rate > 0.0 else nn.Identity()
+        self.attention = SwinAttention( dim=dim,num_heads= num_heads,qkv_bias= qkv_bias,window_size=self.window_size,attention_probs_dropout_prob=0.0)
+        self.drop_path = SwinDropPath(drop_prob=drop_path_rate) if drop_path_rate > 0.0 else nn.Identity()
         self.layernorm_after = nn.LayerNorm(dim, eps=layer_norm_eps)
         self.intermediate = SwinIntermediate( dim=dim,hidden_act=hidden_act, mlp_ratio=mlp_ratio)
         self.output = SwinOutput( dim=dim,mlp_ratio=mlp_ratio,hidden_dropout_prob=hidden_dropout_prob,)
@@ -825,20 +825,19 @@ class SwinStage(nn.Module):
 
 
 class SwinEncoder(nn.Module):
-    def __init__(self, config, grid_size,chunk_size_feed_forward,qkv_bias,drop_path_rate,hidden_act,mlp_ratio,hidden_dropout_prob):
+    def __init__(self,embed_dim, num_heads,grid_size,chunk_size_feed_forward,qkv_bias,drop_path_rate,hidden_act,mlp_ratio,hidden_dropout_prob,depths,):
         super().__init__()
-        self.num_layers = len(config.depths)
-        self.config = config
-        dpr = [x.item() for x in torch.linspace(0, config.drop_path_rate, sum(config.depths))]
+        self.num_layers = len(depths)
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
         self.layers = nn.ModuleList(
             [
                 SwinStage(
-                    config=config,
-                    dim=int(config.embed_dim * 2**i_layer),
+                    window_size=12,
+                    dim=int(embed_dim * 2**i_layer),
                     input_resolution=(grid_size[0] // (2**i_layer), grid_size[1] // (2**i_layer)),
-                    depth=config.depths[i_layer],
-                    num_heads=config.num_heads[i_layer],
-                    drop_path=dpr[sum(config.depths[:i_layer]) : sum(config.depths[: i_layer + 1])],
+                    depth=depths[i_layer],
+                    num_heads=num_heads[i_layer],
+                    # drop_path=dpr[sum(depths[:i_layer]) : sum(depths[: i_layer + 1])],
                     downsample=SwinPatchMerging if (i_layer < self.num_layers - 1) else None,
                     chunk_size_feed_forward=chunk_size_feed_forward, 
                     qkv_bias=qkv_bias,
@@ -1422,10 +1421,10 @@ class SwinBackbone(SwinPreTrainedModel, BackboneMixin):
 
 from transformers.utils.backbone_utils import get_aligned_output_features_output_indices
 class SwinBackboneOurOwn(nn.Module):
-    def __init__(self, config:SwinConfig):
+    def __init__(self, embed_dim,depths,image_size,num_heads,patch_size,use_absolute_embeddings,drop_path_rate,mlp_ratio,hidden_act,chunk_size_feed_forward,qkv_bias,hidden_dropout_prob,use_mask_token,num_channels):
         super().__init__()
       
-        self.config = config
+        
         
         self.stage_names = ['stem', 'stage1', 'stage2', 'stage3', 'stage4'] 
         self.channels = [192,384,768,1536]
@@ -1434,11 +1433,17 @@ class SwinBackboneOurOwn(nn.Module):
         self.out_indices = self._out_indices
         
         self.num_features = None
+        
 
 
-        self.num_features = [config.embed_dim] + [int(config.embed_dim * 2**i) for i in range(len(config.depths))]
-        self.embeddings = SwinEmbeddings(config)
-        self.encoder = SwinEncoder(config, self.embeddings.patch_grid)
+        self.num_features = [embed_dim] + [int(embed_dim * 2**i) for i in range(len(depths))]
+        self.embeddings = SwinEmbeddings(image_size=image_size,patch_size=patch_size,num_channels=num_channels,
+                                         embed_dim=embed_dim,
+                                         use_absolute_embeddings=use_absolute_embeddings,hidden_dropout_prob=hidden_dropout_prob,
+                                         use_mask_token=use_mask_token)
+        self.encoder = SwinEncoder(embed_dim=embed_dim,grid_size=self.embeddings.patch_grid,num_heads=num_heads, 
+                                   chunk_size_feed_forward=chunk_size_feed_forward,qkv_bias=qkv_bias,
+                                   drop_path_rate=drop_path_rate,hidden_act=hidden_act,mlp_ratio=mlp_ratio,hidden_dropout_prob=hidden_dropout_prob,depths=depths)
 
         # Add layer norms to hidden states of out_features
         hidden_states_norms = {}
@@ -1448,6 +1453,9 @@ class SwinBackboneOurOwn(nn.Module):
 
         # Initialize weights and apply final processing
         # self.post_init()
+        self.use_return_dict=True
+        self.output_attentions = False
+        self.output_hidden_states = False
 
     def get_input_embeddings(self):
         return self.embeddings.patch_embeddings
@@ -1484,11 +1492,11 @@ class SwinBackboneOurOwn(nn.Module):
         >>> list(feature_maps[-1].shape)
         [1, 768, 7, 7]
         ```"""
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = return_dict if return_dict is not None else self.use_return_dict
         output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.output_hidden_states
         )
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_attentions = output_attentions if output_attentions is not None else self.output_attentions
 
         embedding_output, input_dimensions = self.embeddings(pixel_values)
 

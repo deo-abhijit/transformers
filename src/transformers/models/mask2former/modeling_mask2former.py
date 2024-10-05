@@ -976,22 +976,22 @@ class Mask2FormerPixelDecoderEncoderMultiscaleDeformableAttention(nn.Module):
 
 
 class Mask2FormerPixelDecoderEncoderLayer(nn.Module):
-    def __init__(self, config: Mask2FormerConfig):
+    def __init__(self, feature_size,num_attention_heads,dropout,encoder_feedforward_dim):
         super().__init__()
-        self.embed_dim = config.feature_size
+        self.embed_dim = feature_size
         self.self_attn = Mask2FormerPixelDecoderEncoderMultiscaleDeformableAttention(
             embed_dim=self.embed_dim,
-            num_heads=config.num_attention_heads,
+            num_heads=num_attention_heads,
             n_levels=3,
             n_points=4,
         )
 
         self.self_attn_layer_norm = nn.LayerNorm(self.embed_dim)
-        self.dropout = config.dropout
+        self.dropout = dropout
         self.activation_fn = nn.functional.relu
-        self.activation_dropout = config.dropout
-        self.fc1 = nn.Linear(self.embed_dim, config.encoder_feedforward_dim)
-        self.fc2 = nn.Linear(config.encoder_feedforward_dim, self.embed_dim)
+        self.activation_dropout = dropout
+        self.fc1 = nn.Linear(self.embed_dim, encoder_feedforward_dim)
+        self.fc2 = nn.Linear(encoder_feedforward_dim, self.embed_dim)
         self.final_layer_norm = nn.LayerNorm(self.embed_dim)
 
     def forward(
@@ -1075,14 +1075,17 @@ class Mask2FormerPixelDecoderEncoderOnly(nn.Module):
         config: Mask2FormerConfig
     """
 
-    def __init__(self, config: Mask2FormerConfig):
+    def __init__(self, drop_out,encoder_layers,hidden_dim,num_attention_heads,dropout,dim_feedforward):
         super().__init__()
 
-        self.config = config
-        self.dropout = config.dropout
+        
+        self.dropout = drop_out
         self.layers = nn.ModuleList(
-            [Mask2FormerPixelDecoderEncoderLayer(config) for _ in range(config.encoder_layers)]
+            [Mask2FormerPixelDecoderEncoderLayer(hidden_dim,num_attention_heads,dropout,dim_feedforward) for _ in range(encoder_layers)]
         )
+        self.output_attentions = False
+        self.output_hidden_states = False
+        self.use_return_dict=False
 
     @staticmethod
     def get_reference_points(spatial_shapes, valid_ratios, device):
@@ -1154,11 +1157,11 @@ class Mask2FormerPixelDecoderEncoderOnly(nn.Module):
             return_dict (`bool`, *optional*):
                 Whether or not to return a [`~file_utils.ModelOutput`] instead of a plain tuple.
         """
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_attentions = output_attentions if output_attentions is not None else self.output_attentions
         output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.output_hidden_states
         )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = return_dict if return_dict is not None else self.use_return_dict
 
         hidden_states = inputs_embeds
         reference_points = self.get_reference_points(spatial_shapes, valid_ratios, device=inputs_embeds.device)
@@ -1195,20 +1198,22 @@ class Mask2FormerPixelDecoderEncoderOnly(nn.Module):
 
 # Modified from from transformers.models.detr.modeling_deformable_detr.DeformableDetrModel with DeformableDetrModel->Mask2FormerPixelDecoder
 class Mask2FormerPixelDecoder(nn.Module):
-    def __init__(self, config: Mask2FormerConfig, feature_channels):
+    def __init__(self,feature_size, mask_feature_size, feature_channels,feature_strides,common_stride,output_attentions,output_hidden_states,drop_out,encoder_layers, hidden_dim,pre_norm,activation_function,dim_feedforward,num_attention_heads):
         super().__init__()
+        
+        self.output_attentions=output_attentions
+        self.output_hidden_states=output_hidden_states
 
-        self.config = config
 
-        feature_dim = config.feature_size
-        mask_dim = config.mask_feature_size
+        feature_dim = feature_size
+        mask_dim = mask_feature_size
         num_pos_features = feature_dim // 2
 
         self.position_embedding = Mask2FormerSinePositionEmbedding(num_pos_feats=num_pos_features, normalize=True)
         self.num_feature_levels = 3
         transformer_in_channels = feature_channels[-self.num_feature_levels :]
 
-        self.transformer_feature_strides = config.feature_strides[-self.num_feature_levels :]
+        self.transformer_feature_strides = feature_strides[-self.num_feature_levels :]
         self.feature_channels = feature_channels
         self.level_embed = nn.Parameter(torch.Tensor(self.num_feature_levels, feature_dim))
 
@@ -1233,12 +1238,13 @@ class Mask2FormerPixelDecoder(nn.Module):
                 ]
             )
 
-        self.encoder = Mask2FormerPixelDecoderEncoderOnly(config)
+        self.encoder = Mask2FormerPixelDecoderEncoderOnly(drop_out=drop_out,encoder_layers=encoder_layers,hidden_dim=hidden_dim,
+                                                          num_attention_heads=num_attention_heads,dropout=drop_out,dim_feedforward=dim_feedforward)
         self.mask_projection = nn.Conv2d(feature_dim, mask_dim, kernel_size=1, stride=1, padding=0)
 
         # Extra FPN levels
         stride = min(self.transformer_feature_strides)
-        self.common_stride = config.common_stride
+        self.common_stride = common_stride
         self.num_fpn_levels = int(np.log2(stride) - np.log2(self.common_stride))
 
         lateral_convs = []
@@ -1284,9 +1290,9 @@ class Mask2FormerPixelDecoder(nn.Module):
         output_hidden_states=None,
         return_dict=None,
     ):
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_attentions = output_attentions if output_attentions is not None else self.output_attentions
         output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.output_hidden_states
         )
 
         # Apply 1x1 convolution to reduce the channel dimension to d_model (256 by default)
@@ -1374,7 +1380,7 @@ class Mask2FormerPixelDecoder(nn.Module):
 
 from ..swin.modeling_swin import SwinBackboneOurOwn
 class Mask2FormerPixelLevelModule(nn.Module):
-    def __init__(self, config: Mask2FormerConfig):
+    def __init__(self):
         """
         Pixel Level Module proposed in [Masked-attention Mask Transformer for Universal Image
         Segmentation](https://arxiv.org/abs/2112.01527). It runs the input image through a backbone and a pixel
@@ -1386,16 +1392,18 @@ class Mask2FormerPixelLevelModule(nn.Module):
         """
         super().__init__()
 
-        import pickle 
         
-        #self.encoder = load_backbone(config)# SwinBackboneOurOwn(config=config)  
-        swin_config=  pickle.load(open('finalfinalfinalconfig.pkl','rb'))
-        self.encoder = SwinBackboneOurOwn(config=swin_config)
+
+        self.encoder = SwinBackboneOurOwn(embed_dim=192,depths=[2,2,18,2],image_size=384,patch_size=4,use_absolute_embeddings=False,
+                                          drop_path_rate=0.3,mlp_ratio=4,hidden_act='gelu',chunk_size_feed_forward=0,
+                                          qkv_bias=True,hidden_dropout_prob=0.0,use_mask_token=False, num_channels=3, num_heads=[6,12,24,48]
+                                          
+                                          )
             
-        print(self.encoder) 
-        
-        
-        self.decoder = Mask2FormerPixelDecoder(config, feature_channels=self.encoder.channels)
+         
+        self.decoder = Mask2FormerPixelDecoder( feature_channels=self.encoder.channels,feature_size=256,feature_strides=[4,8,16,32],common_stride=4,output_attentions=False,
+                                               output_hidden_states=False,drop_out=0.0,encoder_layers=6,mask_feature_size=256,
+                                              hidden_dim=256,pre_norm=False,activation_function='relu',dim_feedforward=2048,num_attention_heads=8)
 
     def forward(self, pixel_values: Tensor, output_hidden_states: bool = False) -> Mask2FormerPixelLevelModuleOutput:
         backbone_features = self.encoder(pixel_values).feature_maps
@@ -1560,27 +1568,27 @@ class Mask2FormerMaskedAttentionDecoderLayer(nn.Module):
             The configuration used to initialize the Mask2FormerMaskedAttentionDecoder.
     """
 
-    def __init__(self, config: Mask2FormerConfig):
+    def __init__(self,hidden_dim,pre_norm,num_attention_heads,dropout,activation_function,dim_feedforward):
         super().__init__()
-        self.config = config
-        self.embed_dim = self.config.hidden_dim
-        self.pre_norm = self.config.pre_norm
+        
+        self.embed_dim = hidden_dim
+        self.pre_norm = pre_norm
         self.self_attn = Mask2FormerAttention(
             embed_dim=self.embed_dim,
-            num_heads=config.num_attention_heads,
-            dropout=config.dropout,
+            num_heads=num_attention_heads,
+            dropout=dropout,
             is_decoder=True,
         )
 
-        self.dropout = self.config.dropout
-        self.activation_fn = ACT2FN[self.config.activation_function]
-        self.activation_dropout = self.config.dropout
+        self.dropout = dropout
+        self.activation_fn = ACT2FN[activation_function]
+        self.activation_dropout = dropout
 
         self.self_attn_layer_norm = nn.LayerNorm(self.embed_dim)
-        self.cross_attn = nn.MultiheadAttention(self.embed_dim, self.config.num_attention_heads, self.config.dropout)
+        self.cross_attn = nn.MultiheadAttention(self.embed_dim, num_attention_heads, dropout)
         self.cross_attn_layer_norm = nn.LayerNorm(self.embed_dim)
-        self.fc1 = nn.Linear(self.embed_dim, self.config.dim_feedforward)
-        self.fc2 = nn.Linear(self.config.dim_feedforward, self.embed_dim)
+        self.fc1 = nn.Linear(self.embed_dim, dim_feedforward)
+        self.fc2 = nn.Linear(dim_feedforward, self.embed_dim)
         self.final_layer_norm = nn.LayerNorm(self.embed_dim)
 
     def with_pos_embed(self, tensor, pos: Optional[Tensor]):
@@ -1773,24 +1781,23 @@ class Mask2FormerMaskedAttentionDecoder(nn.Module):
             Configuration used to instantiate Mask2FormerMaskedAttentionDecoder.
     """
 
-    def __init__(self, config: Mask2FormerConfig):
+    def __init__(self,mask_feature_size,dropout,hidden_dim,decoder_layers,num_attention_heads,activation_function,pre_norm,dim_feedforward):
         super().__init__()
 
-        self.config = config
-        self.mask_feature_size = config.mask_feature_size
-        self.dropout = config.dropout
-        self.layerdrop = config.dropout
+        self.mask_feature_size = mask_feature_size
+        self.dropout = dropout
+        self.layerdrop = dropout
         self.num_feature_levels = 3  # level embedding (3 scales)
-        self.decoder_layers = config.decoder_layers - 1
+        self.decoder_layers = decoder_layers - 1
 
         self.layers = nn.ModuleList(
-            [Mask2FormerMaskedAttentionDecoderLayer(self.config) for _ in range(self.decoder_layers)]
+            [Mask2FormerMaskedAttentionDecoderLayer(hidden_dim=hidden_dim,pre_norm=pre_norm,num_attention_heads=num_attention_heads,dropout=dropout,activation_function=activation_function,dim_feedforward=dim_feedforward) for _ in range(self.decoder_layers)]
         )
-        self.layernorm = nn.LayerNorm(config.hidden_dim)
+        self.layernorm = nn.LayerNorm(hidden_dim)
 
         self.mask_predictor = Mask2FormerMaskPredictor(
-            hidden_size=config.hidden_dim,
-            num_heads=config.num_attention_heads,
+            hidden_size=hidden_dim,
+            num_heads=num_attention_heads,
             mask_feature_size=self.mask_feature_size,
         )
 
@@ -2040,22 +2047,22 @@ class Mask2FormerTransformerModule(nn.Module):
     The Mask2Former's transformer module.
     """
 
-    def __init__(self, in_features: int, config: Mask2FormerConfig):
+    def __init__(self, in_features, hidden_dim, num_queries,dim_feedforward,enforce_input_projection, mask_feature_size,dropout,decoder_layers,num_attention_heads,pre_norm,activation_function):
         super().__init__()
-        hidden_dim = config.hidden_dim
+        hidden_dim = hidden_dim
         self.num_feature_levels = 3
         self.position_embedder = Mask2FormerSinePositionEmbedding(num_pos_feats=hidden_dim // 2, normalize=True)
-        self.queries_embedder = nn.Embedding(config.num_queries, hidden_dim)
-        self.queries_features = nn.Embedding(config.num_queries, hidden_dim)
+        self.queries_embedder = nn.Embedding(num_queries, hidden_dim)
+        self.queries_features = nn.Embedding(num_queries, hidden_dim)
         self.input_projections = []
 
         for _ in range(self.num_feature_levels):
-            if in_features != hidden_dim or config.enforce_input_projection:
+            if in_features != hidden_dim or enforce_input_projection:
                 self.input_projections.append(nn.Conv2d(in_features, hidden_dim, kernel_size=1))
             else:
                 self.input_projections.append(nn.Sequential())
 
-        self.decoder = Mask2FormerMaskedAttentionDecoder(config=config)
+        self.decoder = Mask2FormerMaskedAttentionDecoder(mask_feature_size=mask_feature_size,dropout=dropout,hidden_dim=hidden_dim,decoder_layers=decoder_layers,num_attention_heads=num_attention_heads,pre_norm=pre_norm,activation_function=activation_function,dim_feedforward=dim_feedforward)
         self.level_embed = nn.Embedding(self.num_feature_levels, hidden_dim)
 
     def forward(
