@@ -760,7 +760,7 @@ class SwinLayer(nn.Module):
 
 
 class SwinStage(nn.Module):
-    def __init__(self, config, dim, input_resolution, depth, num_heads, drop_path, downsample):
+    def __init__(self, config, dim, input_resolution, depth, num_headsd, downsample):
         super().__init__()
         self.config = config
         self.dim = dim
